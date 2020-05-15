@@ -39,13 +39,14 @@ class EyeTrackingDataset(Dataset):
             pos_fove = self.cart2polar(pos_fove)
         return (image, pos, pos_fove, is_open)
     
-    def cart2polar(self, cart, polar):
+    def cart2polar(self, cart):
         '''
         Covert left-hand cartesian coords to polar coords
         cart is in [x, y, z]
         polar is in [azimuth, elevation, distance]
         '''
-        polar = cart
-        polar[0] = np.rad2deg(np.arctan(cart[0], cart[2]))
-        polar[1] = np.rad2deg(np.arctan(cart[1], cart[2]))
+        polar = np.zeros_like(cart)
+        polar[0] = np.rad2deg(np.arctan2(cart[0], cart[2]))
+        polar[1] = np.rad2deg(np.arctan2(cart[1], cart[2]))
         polar[2] = (cart[0]**2+cart[1]**2+cart[2]**2)**0.5
+        return polar
