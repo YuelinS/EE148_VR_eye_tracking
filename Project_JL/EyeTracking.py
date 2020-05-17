@@ -18,7 +18,7 @@ class EyeTrackingDataset(Dataset):
         pos_raw = np.fromfile(self.path_pos, dtype=self.dt_pos, offset=256)
         self.pos = np.hstack([pos_raw['x'].reshape(-1, 1), pos_raw['y'].reshape(-1, 1), pos_raw['z'].reshape(-1, 1)])#.astype(np.double)
         self.pos_fove = np.hstack([pos_raw['x_fove'].reshape(-1, 1), pos_raw['y_fove'].reshape(-1, 1), pos_raw['z_fove'].reshape(-1, 1)])#.astype(np.double)
-        self.is_open = pos_raw['is_open']
+        self.is_open = pos_raw['is_open'].astype(np.float)
 
     def __len__(self):
         return self.pos.shape[0]
