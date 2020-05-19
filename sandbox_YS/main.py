@@ -7,6 +7,7 @@ import torch.optim as optim
 from torchvision import transforms
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import StepLR, ReduceLROnPlateau
+import matplotlib.pyplot as plt
 import numpy as np
 import os
 # from learning_curve import myplot
@@ -14,10 +15,59 @@ import pickle
 from EyeTracking import EyeTrackingDataset
 
 '''
-python main.py --batch-size 128 --epochs 1 --log-interval 20 --lr 0.1
+python main.py --batch-size 128 --epochs 1 --log-interval 20 --lr 1
 python main.py --evaluate --load-model eye_tracking_model.pt
 '''
 
+
+# Training settings
+# Use the command line to modify the default settings
+parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
+parser.add_argument('--batch-size', type=int, default=200, metavar='N',
+                    help='input batch size for training (default: 64)')
+parser.add_argument('--test-batch-size', type=int, default=128, metavar='N',
+                    help='input batch size for testing (default: 1000)')
+parser.add_argument('--epochs', type=int, default=1, metavar='N',
+                    help='number of epochs to train (default: 14)')
+parser.add_argument('--lr', type=float, default=0.1, metavar='LR',
+                    help='learning rate (default: 0.1)')
+parser.add_argument('--step', type=int, default=1, metavar='N',
+                    help='number of epochs between learning rate reductions (default: 1)')
+parser.add_argument('--gamma', type=float, default=0.9, metavar='M',
+                    help='Learning rate step gamma (default: 0.7)')
+parser.add_argument('--no-cuda', action='store_true', default=False,
+                    help='disables CUDA training')
+parser.add_argument('--seed', type=int, default=2, metavar='S',
+                    help='random seed (default: 1)')
+parser.add_argument('--log-interval', type=int, default=10, metavar='N',
+                    help='how many batches to wait before logging training status')
+parser.add_argument('--evaluate', action='store_true', default=False,
+                    help='evaluate your model on the official test set')
+parser.add_argument('--load-model', type=str,
+                    help='model file path')
+parser.add_argument('--save-model', action='store_true', default=True,
+                    help='For Saving the current Model')
+parser.add_argument('--data-partition', type=int, default=1, metavar='N',
+                    help='Choose subset of  training set (default: 1)')
+parser.add_argument('--reg-lambda', type=float, default=0.0008, metavar='L',
+                    help='Regularization lambda (default:0.0008)')    
+args = parser.parse_args()
+use_cuda = not args.no_cuda and torch.cuda.is_available()
+device = torch.device("cuda" if use_cuda else "cpu")
+kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
+
+torch.manual_seed(args.seed)    
+
+partition = args.data_partition
+
+h_rs, w_rs = 60,160
+path_pos = '../../data/Fixation Training Pos.bin'
+dir_images = '../../data/Fixation Training Images'
+
+rfd = '../../results_project/'
+    
+    
+    
 
 class Net(nn.Module):
  
@@ -42,13 +92,14 @@ class Net(nn.Module):
         self.fc3 = nn.Linear(16, 3)
         
         self.activate = nn.ELU()
+        kdrop = 1
         
         self.forward_pass = nn.Sequential(
-            self.conv1, nn.BatchNorm2d(chns[0]), self.activate, nn.MaxPool2d(2), nn.Dropout2d(0.8), 
-            self.conv2, nn.BatchNorm2d(chns[1]), self.activate, nn.MaxPool2d(2), nn.Dropout2d(0.8), 
-            self.conv3, nn.BatchNorm2d(chns[2]), self.activate, nn.MaxPool2d(2), nn.Dropout2d(0.8), 
-            self.conv4, nn.BatchNorm2d(chns[3]), self.activate, nn.MaxPool2d(2), nn.Dropout2d(0.8), 
-            nn.Flatten(), self.fc1, self.activate,
+            self.conv1, nn.BatchNorm2d(chns[0]), self.activate, nn.MaxPool2d(2), nn.Dropout2d(kdrop), 
+            self.conv2, nn.BatchNorm2d(chns[1]), self.activate, nn.MaxPool2d(2), nn.Dropout2d(kdrop), 
+            self.conv3, nn.BatchNorm2d(chns[2]), self.activate, nn.MaxPool2d(2), nn.Dropout2d(kdrop), 
+            self.conv4, nn.BatchNorm2d(chns[3]), self.activate, nn.MaxPool2d(2), nn.Dropout2d(kdrop), 
+            nn.Flatten(), self.fc1, self.activate, nn.Dropout2d(kdrop),
             self.fc2, self.activate,
             self.fc3
         )
@@ -56,7 +107,7 @@ class Net(nn.Module):
         self.criterion_train = nn.MSELoss()
         self.criterion_test = nn.MSELoss(reduction='sum')
         # Try different optimzers here [Adadelta, Adam, SGD, RMSprop]
-        self.optimizer = optim.Adam(self.parameters(), lr=args.lr)
+        self.optimizer = optim.Adadelta(self.parameters(), lr=args.lr)
         # self.scheduler = ReduceLROnPlateau(self.optimizer, 'min')
         self.scheduler = StepLR(self.optimizer, step_size=args.step, gamma=args.gamma)
     
@@ -103,7 +154,7 @@ class Net(nn.Module):
             output, loss = self.forward(data, target)                # Make predictions
 
             if batch_idx % self.args.log_interval == 0:
-                print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.4f}'.format(
+                print('\nTrain Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.4f}'.format(
                     epoch, batch_idx * len(data), len(train_loader.dataset),
                     100. * batch_idx / len(train_loader), loss.item()))
                                 
@@ -111,9 +162,27 @@ class Net(nn.Module):
                 for i in range(2):
                     print('True:', [f'{target.tolist()[i][d]:.3f}' for d in range(3)], 
                           'Pred:', [f'{output.tolist()[i][d]:.3f}' for d in range(3)])
-                
+  
+                    # print('Train Max:', f'{data[i][0].max()}')
+
                 total_time = time.time() - start_time
-                print(f'Time per {self.args.log_interval} iters: {total_time:.2f}s\n')
+                print(f'Time per {self.args.log_interval} iters: {total_time:.2f}s')
+                
+                               
+                
+                # self.eval()
+                # data = data[:3]
+                # target = target[:3]
+                # output, loss = self.forward(data, target)                # Make predictions
+                
+                # print('\nCheck Test: 3 loss: {:.4f}'.format(loss))
+                # print('Examples:')
+                # for i in range(3):
+                #     print('Data:', [f'{data[i][0].mean(axis=0)[d]}' for d in range(25,30)], 
+                #           'Pred:', [f'{output.tolist()[i][d]:.3f}' for d in range(3)])
+                #     print('Test Max:', f'{data[i][0].max()}')
+                
+                # self.train()
                 
         return loss
            
@@ -131,8 +200,7 @@ class Net(nn.Module):
             if self.args.evaluate:
               print(f'Test batch {batch_idx}')              
               trues.append(target.detach().numpy())
-              preds.append(output.detach().numpy())  
-              
+              preds.append(output.detach().n
             # if batch_idx == 0:
             #       break
                 
@@ -141,7 +209,8 @@ class Net(nn.Module):
         print('\nTest set: Average loss: {:.4f}'.format(test_loss))
         print('Examples:')
         for i in range(3):
-            print('True:', [f'{target.tolist()[i][d]:.3f}' for d in range(3)], 
+            print('True:', [f'{target.tolist()[i][d]:.3f}' for d in range(3umpy())  
+              )], 
                   'Pred:', [f'{output.tolist()[i][d]:.3f}' for d in range(3)])
                 
         return test_loss, trues, preds
@@ -150,59 +219,12 @@ class Net(nn.Module):
         
 #%%
 def main():
-    # Training settings
-    # Use the command line to modify the default settings
-    parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
-    parser.add_argument('--batch-size', type=int, default=200, metavar='N',
-                        help='input batch size for training (default: 64)')
-    parser.add_argument('--test-batch-size', type=int, default=128, metavar='N',
-                        help='input batch size for testing (default: 1000)')
-    parser.add_argument('--epochs', type=int, default=1, metavar='N',
-                        help='number of epochs to train (default: 14)')
-    parser.add_argument('--lr', type=float, default=1.0, metavar='LR',
-                        help='learning rate (default: 1.0)')
-    parser.add_argument('--step', type=int, default=1, metavar='N',
-                        help='number of epochs between learning rate reductions (default: 1)')
-    parser.add_argument('--gamma', type=float, default=0.7, metavar='M',
-                        help='Learning rate step gamma (default: 0.7)')
-    parser.add_argument('--no-cuda', action='store_true', default=False,
-                        help='disables CUDA training')
-    parser.add_argument('--seed', type=int, default=1, metavar='S',
-                        help='random seed (default: 1)')
-    parser.add_argument('--log-interval', type=int, default=200, metavar='N',
-                        help='how many batches to wait before logging training status')
-    parser.add_argument('--evaluate', action='store_true', default=False,
-                        help='evaluate your model on the official test set')
-    parser.add_argument('--load-model', type=str,
-                        help='model file path')
-    parser.add_argument('--save-model', action='store_true', default=True,
-                        help='For Saving the current Model')
-    parser.add_argument('--data-partition', type=int, default=1, metavar='N',
-                        help='Choose subset of  training set (default: 1)')
-    parser.add_argument('--reg-lambda', type=float, default=0.0008, metavar='L',
-                        help='Regularization lambda (default:0.0008)')    
-    args = parser.parse_args()
-    use_cuda = not args.no_cuda and torch.cuda.is_available()
-    device = torch.device("cuda" if use_cuda else "cpu")
-    kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
 
-    torch.manual_seed(args.seed)    
-    
-    partition = args.data_partition
-    
-    h_rs, w_rs = 60,160
-    path_pos = '../../data/Fixation Training Pos.bin'
-    dir_images = '../../data/Fixation Training Images'
-    
-    rfd = '../../results_project/'
-    
-#%% Load dataset
-    
-    # version = '_augmented'
+    # Load dataset    
     img_transform = transforms.Compose([
         transforms.Resize((h_rs,w_rs)),
-        transforms.Grayscale(),
-        transforms.ColorJitter(brightness=0.05, contrast=0.05),
+        # transforms.Grayscale(),
+        # transforms.ColorJitter(brightness=0.05, contrast=0.05),
         transforms.ToTensor()])
         
     full_dataset = EyeTrackingDataset(path_pos = path_pos, dir_images = dir_images, transform=img_transform)
@@ -215,9 +237,15 @@ def main():
     np.random.seed(1)
     train_dataset, val_dataset, test_dataset=torch.utils.data.random_split(full_dataset,(train_length,val_length,test_length))
 
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=0)
-    val_loader = DataLoader(val_dataset, batch_size=args.test_batch_size, shuffle=True, num_workers=0)
-    test_loader = DataLoader(test_dataset, batch_size=args.test_batch_size, shuffle=True, **kwargs)
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=False, num_workers=0)
+    val_loader = DataLoader(val_dataset, batch_size=args.test_batch_size, shuffle=False, num_workers=0)
+    test_loader = DataLoader(test_dataset, batch_size=args.test_batch_size, shuffle=False, **kwargs)
+
+    # Take a look at the data    
+    img,target = train_dataset[0]
+    plt.imshow(img.numpy().squeeze(),cmap = 'gray')
+    plt.title(f'{target}')
+    plt.show()
 
     
 #%% Evaluate on test set
@@ -265,10 +293,10 @@ def main():
             best_loss = val_loss
         
         # record train & val loss for every epoch 
-        train_batch_losses.append(train_batch_loss)
+        train_batch_losses.append(train_batch_loss.detach().numpy())
         val_losses.append(val_loss)
             
-    np.save(rfd + 'loss_train.npy', [train_batch_losses.detach().numpy(),val_losses])
+    np.save(rfd + 'loss_train.npy', [train_batch_losses, val_losses])
             
 
     # if args.save_model:        
