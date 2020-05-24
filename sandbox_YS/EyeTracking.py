@@ -29,7 +29,8 @@ class EyeTrackingDataset(Dataset):
         if self.transform:
             image = self.transform(image)
         return (image, self.pos[idx, :])
-    
+
+
 #%%
 # =============================================================================
 # import matplotlib.pyplot as plt
@@ -39,9 +40,9 @@ class EyeTrackingDataset(Dataset):
 # dir_images = '../../data/Fixation Training Images'   
 #  
 # img_transform = transforms.Compose([
-#         # transforms.RandomRotation(10),
-#         # transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0),
-#         transforms.Resize((24,64)),
+#         transforms.Resize((60,160)),
+#         # transforms.Grayscale(),
+#         # transforms.ColorJitter(brightness=0.05, contrast=0.05),
 #         transforms.ToTensor()])
 # 
 # face_dataset = EyeTrackingDataset(path_pos, dir_images, transform=img_transform)
@@ -52,7 +53,7 @@ class EyeTrackingDataset(Dataset):
 # for i in range(3):
 #     img,target = face_dataset[i]
 #     im = img.numpy()*255
-#     print(i, img.size,target)
+#     print(i, im.shape, np.max(im[0]), target)
 # 
 #     ax = plt.subplot(1, 3, i + 1)
 #     plt.tight_layout()
