@@ -144,7 +144,7 @@ class Net(nn.Module):
                 loss = criterion(output, target, weight=weight, reg_lambda=0)
             return output, loss
 
-    def iterate(self, device, data_loader, epoch, weight=torch.ones(1, 4), verbose=True):      
+    def iterate(self, device, data_loader, epoch, weight, verbose=True):      
         total_loss = 0.
         for batch_idx, (data, target, ref) in enumerate(data_loader):
             data, target = data.to(device), target.to(device)           
@@ -156,4 +156,3 @@ class Net(nn.Module):
         if not self.training:
             print(f'Validation set: Average loss: {total_loss.item():.4f}')
         return total_loss.item()
-        
