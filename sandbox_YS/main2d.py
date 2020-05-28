@@ -93,14 +93,14 @@ class Net(nn.Module):
         self.fc3 = nn.Linear(16, 3)
         
         self.activate = nn.ELU()
-        kdrop = 0
+        kdrop = 1
         
         self.forward_pass = nn.Sequential(
-            self.conv1, nn.BatchNorm2d(chns[0]),  nn.MaxPool2d(2), nn.Dropout2d(kdrop), 
-            self.conv2, nn.BatchNorm2d(chns[1]),  nn.MaxPool2d(2), nn.Dropout2d(kdrop), 
-            self.conv3, nn.BatchNorm2d(chns[2]),  nn.MaxPool2d(2), nn.Dropout2d(kdrop), 
-            self.conv4, nn.BatchNorm2d(chns[3]),  nn.MaxPool2d(2), nn.Dropout2d(kdrop), 
-            nn.Flatten(), self.fc1,  nn.Dropout2d(kdrop),
+            self.conv1, nn.BatchNorm2d(chns[0]),  nn.MaxPool2d(2), 
+            self.conv2, nn.BatchNorm2d(chns[1]),  nn.MaxPool2d(2), 
+            self.conv3, nn.BatchNorm2d(chns[2]),  nn.MaxPool2d(2),  
+            self.conv4, nn.BatchNorm2d(chns[3]),  nn.MaxPool2d(2), 
+            nn.Flatten(), self.fc1,
             self.fc2, 
             self.fc3
         )
@@ -265,10 +265,10 @@ def main():
     
  
 #%% Train model
-    if os.path.exists(rfd + 'best_val_loss.npy'):
-        best_loss = np.load(rfd + 'best_val_loss.npy')
+    if os.path.exists(rfd + 'best_loss.npy'):
+        best_loss = np.load(rfd + 'best_loss.npy')
     else:   
-        best_loss = 5
+        best_loss = 15
     
     model = Net(h_rs,w_rs,args).to(device)
     
@@ -288,7 +288,7 @@ def main():
         if args.save_model and val_loss < best_loss:            
             best_loss = val_loss           
             torch.save(model.state_dict(), 'eye_tracking_model.pt')
-            np.save(rfd + 'best_val_loss.npy', best_loss)
+            np.save(rfd + 'best_loss.npy', best_loss)
             best_loss = val_loss
         
         # record train & val loss for every epoch 
