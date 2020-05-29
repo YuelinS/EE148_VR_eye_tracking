@@ -61,8 +61,12 @@ torch.manual_seed(args.seed)
 partition = args.data_partition
 
 h_rs, w_rs = 60,160
-path_pos = '../../data/pos0.bin'
-dir_images = '../../data/images0'
+if os.environ['COMPUTERNAME']=='HOME-JIALIANG':
+    path_pos = r'D:\Data\Unity\Minos\pos0.bin'
+    dir_images = r'D:\Data\Unity\Minos\images0'
+else:
+    path_pos = '../../data/pos0.bin'
+    dir_images = '../../data/images0'
 
 rfd = '../../results_project/'
     
@@ -71,36 +75,60 @@ rfd = '../../results_project/'
 
 class Net(nn.Module):
  
-    def __init__(self,h_rs,w_rs,args):
-        super(Net, self).__init__()        
+    def __init__(self, h_rs, w_rs, args):
+        super().__init__()
         self.args = args
+#         self.polar = args.polar
         
-        chns = [16, 32, 64, 64]
-        self.kers = [3, 3, 3, 3]
-        self.strides = [1, 1, 1, 1]
-
-        lin_in_w = self.calculate_size(w_rs)
-        lin_in_h = self.calculate_size(h_rs)
-
-        self.conv1 = nn.Conv2d(in_channels=1, out_channels=chns[0], kernel_size=self.kers[0], stride = self.strides[0])
-        self.conv2 = nn.Conv2d(chns[0], chns[1], self.kers[1], self.strides[1])
-        self.conv3 = nn.Conv2d(chns[1], chns[2], self.kers[2], self.strides[2])
-        self.conv4 = nn.Conv2d(chns[2], chns[3], self.kers[3], self.strides[3])
-
-        self.fc1 = nn.Linear(chns[-1]*lin_in_h*lin_in_w, 16)
-        self.fc2 = nn.Linear(16, 16)       
+        self.act = nn.ELU()
+        # (1, 60, 160)
+        
+        self.d1 = 32
+        self.conv1 = nn.Conv2d(1, self.d1, kernel_size=3, stride=1, padding=1, padding_mode='replicate')
+        # (32, 60, 160)
+        self.batchNorm1 = nn.BatchNorm2d(self.d1)
+        self.pool1 = nn.MaxPool2d(2)
+        self.dropout2d1 = nn.Dropout2d(0.9)
+        # (32, 30, 80)
+        
+        self.d2 = 32
+        self.conv2 = nn.Conv2d(self.d1, self.d2, kernel_size=3, stride=1, padding=1, padding_mode='replicate')
+        # (32, 30, 80)
+        self.batchNorm2 = nn.BatchNorm2d(self.d2)
+        self.pool2 = nn.MaxPool2d(2)
+        self.dropout2d2 = nn.Dropout2d(0.9)
+        # (32, 15, 40)
+        
+        self.d3 = 64
+        self.conv3 = nn.Conv2d(self.d2, self.d3, kernel_size=3, stride=1, padding=1, padding_mode='replicate')
+        # (64, 15, 40)
+        self.batchNorm3 = nn.BatchNorm2d(self.d3)
+        self.pool3 = nn.MaxPool2d(2)
+        self.dropout2d3 = nn.Dropout2d(0.9)
+        # (64, 7, 20)
+        
+        self.d4 = 64
+        self.conv4 = nn.Conv2d(self.d3, self.d4, kernel_size=3, stride=1, padding=1, padding_mode='replicate')
+        # (64, 7, 20)
+        self.batchNorm4 = nn.BatchNorm2d(self.d4)
+        self.pool4 = nn.MaxPool2d(2)
+        self.dropout2d4 = nn.Dropout2d(0.9)
+        # (64, 3, 10)
+        
+        self.fc1 = nn.Linear(1920, 16)
+        self.dropout1 = nn.Dropout(0.8)
+        self.fc2 = nn.Linear(16, 16)
+        self.dropout2 = nn.Dropout(0.8)
         self.fc3 = nn.Linear(16, 3)
         
-        self.activate = nn.ELU()
-        kdrop = 1
-        
         self.forward_pass = nn.Sequential(
-            self.conv1, nn.BatchNorm2d(chns[0]), self.activate, nn.MaxPool2d(2), nn.Dropout2d(kdrop), 
-            self.conv2, nn.BatchNorm2d(chns[1]), self.activate, nn.MaxPool2d(2), nn.Dropout2d(kdrop), 
-            self.conv3, nn.BatchNorm2d(chns[2]), self.activate, nn.MaxPool2d(2), nn.Dropout2d(kdrop), 
-            self.conv4, nn.BatchNorm2d(chns[3]), self.activate, nn.MaxPool2d(2), nn.Dropout2d(kdrop), 
-            nn.Flatten(), self.fc1, self.activate, nn.Dropout2d(kdrop),
-            self.fc2, self.activate,
+            self.conv1, self.batchNorm1, self.act, self.pool1, #self.dropout2d1, 
+            self.conv2, self.batchNorm2, self.act, self.pool2, #self.dropout2d2, 
+            self.conv3, self.batchNorm3, self.act, self.pool3, #self.dropout2d3, 
+            self.conv4, self.batchNorm4, self.act, self.pool4, #self.dropout2d4, 
+            nn.Flatten(), 
+            self.fc1, self.act, 
+            self.fc2, self.act, 
             self.fc3
         )
         
