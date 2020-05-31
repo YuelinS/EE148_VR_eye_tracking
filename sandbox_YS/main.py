@@ -8,10 +8,12 @@ from torchvision import transforms
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import StepLR, ReduceLROnPlateau
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MaxNLocator
 import numpy as np
 import os
 # from learning_curve import myplot
 import pickle
+from datetime import datetime
 from EyeTrackingV2 import EyeTrackingDataset
 
 '''
@@ -21,7 +23,6 @@ python main.py --evaluate --load-model eye_tracking_model.pt
 
 
 # Training settings
-# Use the command line to modify the default settings
 parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
 parser.add_argument('--batch-size', type=int, default=200, metavar='N',
                     help='input batch size for training (default: 64)')
@@ -51,15 +52,15 @@ parser.add_argument('--data-partition', type=int, default=1, metavar='N',
                     help='Choose subset of  training set (default: 1)')
 parser.add_argument('--reg-lambda', type=float, default=0.0008, metavar='L',
                     help='Regularization lambda (default:0.0008)')    
+
 args = parser.parse_args()
 use_cuda = not args.no_cuda and torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
 kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
-
 torch.manual_seed(args.seed)    
-
 partition = args.data_partition
 
+# Data settings
 h_rs, w_rs = 60,160
 path_pos = '../../data/pos0.bin'
 dir_images = '../../data/images0'
@@ -88,9 +89,9 @@ class Net(nn.Module):
         self.conv3 = nn.Conv2d(chns[1], chns[2], self.kers[2], self.strides[2], padding=self.pad, padding_mode='replicate')
         self.conv4 = nn.Conv2d(chns[2], chns[3], self.kers[3], self.strides[3], padding=self.pad, padding_mode='replicate')
 
-        self.fc1 = nn.Linear(chns[-1]*lin_in_h*lin_in_w, 16)
-        self.fc2 = nn.Linear(16, 16)       
-        self.fc3 = nn.Linear(16, 3)
+        self.fc1 = nn.Linear(chns[-1]*lin_in_h*lin_in_w, 3)
+        # self.fc2 = nn.Linear(16, 16)       
+        # self.fc3 = nn.Linear(16, 3)
         
         self.activate = nn.ELU()
         kdrop = 0
@@ -100,17 +101,17 @@ class Net(nn.Module):
             self.conv2, nn.BatchNorm2d(chns[1]),  nn.MaxPool2d(2), nn.Dropout2d(kdrop), 
             self.conv3, nn.BatchNorm2d(chns[2]),  nn.MaxPool2d(2), nn.Dropout2d(kdrop), 
             self.conv4, nn.BatchNorm2d(chns[3]),  nn.MaxPool2d(2), nn.Dropout2d(kdrop), 
-            nn.Flatten(), self.fc1,  nn.Dropout2d(kdrop),
-            self.fc2, 
-            self.fc3
+            nn.Flatten(), self.fc1, # nn.Dropout2d(kdrop),
+            # self.fc2, 
+            # self.fc3
         )
         
         self.criterion_train = nn.MSELoss()
         self.criterion_test = nn.MSELoss(reduction='sum')
         # Try different optimzers here [Adadelta, Adam, SGD, RMSprop]
         self.optimizer = optim.Adadelta(self.parameters(), lr=args.lr)
-        # self.scheduler = ReduceLROnPlateau(self.optimizer, 'min')
-        self.scheduler = StepLR(self.optimizer, step_size=args.step, gamma=args.gamma)
+        self.scheduler = ReduceLROnPlateau(self.optimizer, 'min')
+        # self.scheduler = StepLR(self.optimizer, step_size=args.step, gamma=args.gamma)
     
     
     def calculate_size(self, size_in):
@@ -149,42 +150,35 @@ class Net(nn.Module):
 
         
     def train_iterate(self, device, epoch, train_loader):      
-        start_time = time.time()           
+        start_time = time.time() 
+        batch_losses = []
+          
         for batch_idx, (data, target, target_fove) in enumerate(train_loader):
             data, target = data.to(device,dtype=torch.float), target[:,:3].to(device,dtype=torch.float)           
-            output, loss = self.forward(data, target)                # Make predictions
+            output, batch_loss = self.forward(data, target)                # Make predictions
+            
+            batch_losses.append(batch_loss)
+            
 
             if batch_idx % self.args.log_interval == 0:
                 print('\nTrain Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.4f}'.format(
                     epoch, batch_idx * len(data), len(train_loader.dataset),
-                    100. * batch_idx / len(train_loader), loss.item()))
+                    100. * batch_idx / len(train_loader), batch_loss.item()))
                                 
                 print('Examples:')
                 for i in range(2):
                     print('True:', [f'{target.tolist()[i][d]:.3f}' for d in range(3)], 
-                          'Pred:', [f'{output.tolist()[i][d]:.3f}' for d in range(3)])
-  
+                          'Pred:', [f'{output.tolist()[i][d]:.3f}' for d in range(3)])  
                     # print('Train Max:', f'{data[i][0].max()}')
 
                 total_time = time.time() - start_time
                 print(f'Time per {self.args.log_interval} iters: {total_time:.2f}s')
-                                               
-                
-                # self.eval()
-                # data = data[:3]
-                # target = target[:3]
-                # output, loss = self.forward(data, target)                # Make predictions
-                
-                # print('\nCheck Test: 3 loss: {:.4f}'.format(loss))
-                # print('Examples:')
-                # for i in range(3):
-                #     print('Data:', [f'{data[i][0].mean(axis=0)[d]}' for d in range(25,30)], 
-                #           'Pred:', [f'{output.tolist()[i][d]:.3f}' for d in range(3)])
-                #     print('Test Max:', f'{data[i][0].max()}')
-                
-                # self.train()
-                
-        return loss
+                       
+        #  Record loss for every batch for the 1st epoch:
+        if epoch == 1:
+             batch_loss = batch_losses
+                                           
+        return batch_loss
            
     def test_iterate(self, device, test_loader):     
         
@@ -268,7 +262,7 @@ def main():
     if os.path.exists(rfd + 'best_val_loss.npy'):
         best_loss = np.load(rfd + 'best_val_loss.npy')
     else:   
-        best_loss = 5
+        best_loss = 10
     
     model = Net(h_rs,w_rs,args).to(device)
     
@@ -283,6 +277,28 @@ def main():
         with torch.no_grad():
             val_loss, _ , _ = model.test_iterate(device,val_loader)
                     
+            
+        # Plot training history for the first epoch
+        if epoch == 1: 
+            
+            fig, ax = plt.subplots()  
+            ax.plot(train_batch_loss,marker=".")
+            ax.plot(len(train_batch_loss),val_loss,marker="+")
+            ax.grid()
+            ax.set_xlabel('Batch')
+            ax.set_ylabel('Training loss')
+            ax.text(0.75,1,model.optimizer, horizontalalignment='left',verticalalignment='top', transform=ax.transAxes)
+            ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+
+            now = datetime.now()
+            dt_string = now.strftime("%m%d_%H%M")
+
+            plt.savefig(rfd + dt_string + '_training_history' +  '.png')
+            print(model, file=open(rfd + dt_string + "_model.txt", "w"))
+            
+            train_batch_loss = train_batch_loss[-1]
+            
+            
         # remember best loss and save   
         val_loss = val_loss.detach().numpy()             
         if args.save_model and val_loss < best_loss:            
@@ -294,6 +310,7 @@ def main():
         # record train & val loss for every epoch 
         train_batch_losses.append(train_batch_loss.detach().numpy())
         val_losses.append(val_loss)
+        
             
     np.save(rfd + 'loss_train.npy', [train_batch_losses, val_losses])
             
