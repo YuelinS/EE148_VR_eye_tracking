@@ -24,7 +24,7 @@ len_data = len(pos)
 
 #%%
      
-# scan pattern
+# check scan pattern
 
 fig = plt.figure(figsize=(15, 10), tight_layout=True)
 ax = fig.add_subplot(111, projection='3d')
@@ -42,7 +42,7 @@ ax.set_zlabel('z')
 # plt.savefig(rfd + 'model_prediction.png')
 
 
-# single line of sight
+# compare parameters -- single line of sight
 
 fig = plt.figure(figsize=(15, 10), tight_layout=True)
 ax = fig.add_subplot(111, projection='3d')

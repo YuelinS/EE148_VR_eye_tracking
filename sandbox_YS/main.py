@@ -12,18 +12,19 @@ from matplotlib.ticker import MaxNLocator
 import numpy as np
 import os
 # from learning_curve import myplot
-import pickle
+# import pickle
 from datetime import datetime
 from EyeTrackingV2 import EyeTrackingDataset
 
 '''
-python main.py --batch-size 128 --epochs 1 --log-interval 20 --lr 1
+python main.py --batch-size 128 --epochs 1 --log-interval 20 --lr 0.1
 python main.py --evaluate --load-model eye_tracking_model.pt
 '''
 
+debug_mode = ['none','print_layer_size','fast_1st_epoch'][0]
 
 # Training settings
-parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
+parser = argparse.ArgumentParser(description='PyTorch EyeTracking ConvNet model')
 parser.add_argument('--batch-size', type=int, default=200, metavar='N',
                     help='input batch size for training (default: 64)')
 parser.add_argument('--test-batch-size', type=int, default=128, metavar='N',
@@ -79,7 +80,7 @@ class Net(nn.Module):
         chns = [16, 32, 64, 64]
         self.kers = [3, 3, 3, 3]
         self.strides = [1, 1, 1, 1]
-        self.pad = 1
+        self.pad = 0
 
         lin_in_w = self.calculate_size(w_rs)
         lin_in_h = self.calculate_size(h_rs)
@@ -89,20 +90,20 @@ class Net(nn.Module):
         self.conv3 = nn.Conv2d(chns[1], chns[2], self.kers[2], self.strides[2], padding=self.pad, padding_mode='replicate')
         self.conv4 = nn.Conv2d(chns[2], chns[3], self.kers[3], self.strides[3], padding=self.pad, padding_mode='replicate')
 
-        self.fc1 = nn.Linear(chns[-1]*lin_in_h*lin_in_w, 3)
-        # self.fc2 = nn.Linear(16, 16)       
+        self.fc1 = nn.Linear(chns[-1]*lin_in_h*lin_in_w, 16)
+        self.fc2 = nn.Linear(16, 3)       
         # self.fc3 = nn.Linear(16, 3)
         
-        self.activate = nn.ELU()
+        self.activate = nn.ReLU()
         kdrop = 0
         
         self.forward_pass = nn.Sequential(
-            self.conv1, nn.BatchNorm2d(chns[0]),  nn.MaxPool2d(2), nn.Dropout2d(kdrop), 
-            self.conv2, nn.BatchNorm2d(chns[1]),  nn.MaxPool2d(2), nn.Dropout2d(kdrop), 
-            self.conv3, nn.BatchNorm2d(chns[2]),  nn.MaxPool2d(2), nn.Dropout2d(kdrop), 
-            self.conv4, nn.BatchNorm2d(chns[3]),  nn.MaxPool2d(2), nn.Dropout2d(kdrop), 
-            nn.Flatten(), self.fc1, # nn.Dropout2d(kdrop),
-            # self.fc2, 
+            self.conv1, self.activate, nn.BatchNorm2d(chns[0]),  nn.MaxPool2d(2), nn.Dropout2d(kdrop), 
+            self.conv2, self.activate, nn.BatchNorm2d(chns[1]),  nn.MaxPool2d(2), nn.Dropout2d(kdrop), 
+            self.conv3, self.activate, nn.BatchNorm2d(chns[2]),  nn.MaxPool2d(2), nn.Dropout2d(kdrop), 
+            self.conv4, self.activate, nn.BatchNorm2d(chns[3]),  nn.MaxPool2d(2), nn.Dropout2d(kdrop), 
+            nn.Flatten(), self.fc1, self.activate, nn.Dropout2d(kdrop),
+            self.fc2, 
             # self.fc3
         )
         
@@ -115,23 +116,25 @@ class Net(nn.Module):
     
     
     def calculate_size(self, size_in):
-        # conv_out = (conv_in + 2×padding - kernel_size) / stride +1
+        # conv_out = (conv_in + 2×padding - kernel_size) / stride + 1
 
-        size_out = np.floor((size_in + 2*self.pad - self.kers[0] + 1) / 2)
-        size_out = np.floor((size_out + 2*self.pad - self.kers[1] + 1) / 2)
-        size_out = np.floor((size_out + 2*self.pad - self.kers[2] + 1) / 2)
+        size_out = np.floor(np.floor((size_in + 2*self.pad - self.kers[0]) / self.strides[0] +1) / 2)
+        size_out = np.floor(np.floor((size_out + 2*self.pad - self.kers[1]) / self.strides[1] +1) / 2)
+        size_out = np.floor(np.floor((size_out + 2*self.pad - self.kers[2]) / self.strides[2] +1) / 2)
         size_out = np.floor(np.floor((size_out + 2*self.pad - self.kers[3]) / self.strides[3] +1) / 2)
 
         return int(size_out)
     
     
-    def forward(self, x, target):
-       
-        output = self.forward_pass(x)
-        # for layer in self.forward_pass:
-        #     x = layer(x)
-        #     print(x.size())
-        # output = x
+    def forward(self, x, target):      
+        
+        if debug_mode == 'print_layer_size':
+            for layer in self.forward_pass:
+                x = layer(x)
+                print(x.size())
+            output = x
+        else:
+            output = self.forward_pass(x)          
         
             
         if self.training:  
@@ -157,7 +160,7 @@ class Net(nn.Module):
             data, target = data.to(device,dtype=torch.float), target[:,:3].to(device,dtype=torch.float)           
             output, batch_loss = self.forward(data, target)                # Make predictions
             
-            batch_losses.append(batch_loss)
+            batch_losses.append(batch_loss.detach().numpy())
             
 
             if batch_idx % self.args.log_interval == 0:
@@ -222,8 +225,10 @@ def main():
         
     full_dataset = EyeTrackingDataset(path_pos = path_pos, dir_images = dir_images, transform=img_transform, polar = False)
        
-    
-    train_length= int(0.7 * len(full_dataset))
+    if debug_mode == 'fast_1st_epoch':
+        train_length= 10
+    else:
+        train_length= int(0.7 * len(full_dataset))
     val_length = int(0.1 * len(full_dataset))
     test_length = len(full_dataset) - train_length - val_length
 
@@ -283,11 +288,14 @@ def main():
             
             fig, ax = plt.subplots()  
             ax.plot(train_batch_loss,marker=".")
-            ax.plot(len(train_batch_loss),val_loss,marker="+")
+            ax.plot(len(train_batch_loss)-1,val_loss,marker="+")
+            ax.annotate(f"{train_batch_loss[-1]:3f}",xy=(len(train_batch_loss)-1, train_batch_loss[-1])) #,xytext=(x2, y2)
+            ax.annotate(f"{val_loss:3f}",xy=(len(train_batch_loss)-1, val_loss)) #,xytext=(x2, y2)
             ax.grid()
             ax.set_xlabel('Batch')
             ax.set_ylabel('Training loss')
-            ax.text(0.75,1,model.optimizer, horizontalalignment='left',verticalalignment='top', transform=ax.transAxes)
+            ax.text(0.7,0.95,model.optimizer, horizontalalignment='left',verticalalignment='top', transform=ax.transAxes)
+            ax.text(0.05,1,model.scheduler, horizontalalignment='left',verticalalignment='top', transform=ax.transAxes)
             ax.xaxis.set_major_locator(MaxNLocator(integer=True))
 
             now = datetime.now()

@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 rfd = 'D:/git/EE148/results_project/'    
 
 
-#%% Training loss curve
+#%% Training loss across epochs
 from matplotlib.ticker import MaxNLocator
 
 [train_batch_losses,val_losses] = np.load(rfd+'loss_train.npy',allow_pickle=True)
