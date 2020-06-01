@@ -136,8 +136,9 @@ class EyeTrackingDataset(Dataset):
 
 import matplotlib.pyplot as plt
 
-path_pos = '../../data/posFix4.bin'
-dir_images = '../../data/imagesFix4'   
+path_pos, dir_images = '../../data/pos0.bin', '../../data/images0'
+# path_pos, dir_images = '../../data/posFix4.bin', '../../data/imagesFix4'
+ 
   
 img_transform = transforms.Compose([
         transforms.Resize((60,160)),
@@ -163,20 +164,23 @@ for i in range(3):
     plt.show()
     
     
-# scan pattern
-from mpl_toolkits.mplot3d import Axes3D
-
-fig = plt.figure(figsize=(15, 10), tight_layout=True)
-ax = fig.add_subplot(111, projection='3d')
-
-for k in range(0,len(face_dataset),100):
-    _,target,_ = face_dataset[k]
-    # print(target)
-    ax.scatter3D(target[0], target[1], target[2])
-    
-ax.invert_yaxis()
-ax.set_xlabel('x')
-ax.set_ylabel('y')
-ax.set_zlabel('z')
-# ax.view_init(-90, 45)
-# plt.savefig(rfd + 'model_prediction.png')
+# =============================================================================
+# # scan pattern
+# # from mpl_toolkits.mplot3d import Axes3D
+# 
+# fig = plt.figure(figsize=(15, 10), tight_layout=True)
+# ax = fig.add_subplot(111, projection='3d')
+# 
+# for k in range(0,len(face_dataset),100):
+#     _,target,_ = face_dataset[k]
+#     # print(target)
+#     ax.scatter3D(target[0], target[1], target[2])
+#     
+# ax.invert_yaxis()
+# ax.set_xlabel('x')
+# ax.set_ylabel('y')
+# ax.set_zlabel('z')
+# # ax.view_init(-90, 45)
+# # plt.savefig(rfd + 'model_prediction.png')
+# 
+# =============================================================================

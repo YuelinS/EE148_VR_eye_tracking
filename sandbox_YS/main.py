@@ -14,20 +14,24 @@ import os
 # from learning_curve import myplot
 # import pickle
 from datetime import datetime
-from EyeTrackingV2 import EyeTrackingDataset
+from EyeTrackingComb import EyeTrackingDatasetV2, EyeTrackingDatasetV3
 
 '''
 python main.py --batch-size 128 --epochs 1 --log-interval 20 --lr 0.1
 python main.py --evaluate --load-model eye_tracking_model.pt
 '''
 
-debug_mode = ['none','print_layer_size','fast_1st_epoch'][0]
+debug_mode = ['none','print_layer_size','fast_1st_epoch','fast_eval'][0]
 
 # Training settings
 parser = argparse.ArgumentParser(description='PyTorch EyeTracking ConvNet model')
+parser.add_argument('--data-session', type=int, default=0, metavar='N',
+                    help='data session (default: 0)')
+parser.add_argument('--model-name', type=str, default='orig',
+                    help='model selection (default:original)')
 parser.add_argument('--batch-size', type=int, default=200, metavar='N',
                     help='input batch size for training (default: 64)')
-parser.add_argument('--test-batch-size', type=int, default=128, metavar='N',
+parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
                     help='input batch size for testing (default: 1000)')
 parser.add_argument('--epochs', type=int, default=1, metavar='N',
                     help='number of epochs to train (default: 14)')
@@ -43,7 +47,7 @@ parser.add_argument('--seed', type=int, default=2, metavar='S',
                     help='random seed (default: 1)')
 parser.add_argument('--log-interval', type=int, default=10, metavar='N',
                     help='how many batches to wait before logging training status')
-parser.add_argument('--evaluate', action='store_true', default=False,
+parser.add_argument('--evaluate', action='store_true', default=True,
                     help='evaluate your model on the official test set')
 parser.add_argument('--load-model', type=str,
                     help='model file path')
@@ -60,16 +64,24 @@ device = torch.device("cuda" if use_cuda else "cpu")
 kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
 torch.manual_seed(args.seed)    
 partition = args.data_partition
+session = args.data_session
+model_name = args.model_name
+
+if session == 0:
+    path_pos, dir_images = '../../data/pos0.bin', '../../data/images0'
+    rfd = '../../results_project/session0/'
+else:
+    path_pos, dir_images = '../../data/posFix4.bin', '../../data/imagesFix4'
+    rfd = '../../results_project/session4/'
+if not os.path.exists(rfd):
+    os.makedirs(rfd)
+rpos = rfd + model_name + '_'
 
 # Data settings
 h_rs, w_rs = 60,160
-path_pos = '../../data/pos0.bin'
-dir_images = '../../data/images0'
 
-rfd = '../../results_project/'
-    
-    
-    
+
+
 
 class Net(nn.Module):
  
@@ -221,21 +233,25 @@ def main():
         transforms.Resize((h_rs,w_rs)),
         transforms.Grayscale(),
         # transforms.ColorJitter(brightness=0.05, contrast=0.05),
-        transforms.ToTensor()])
-        
-    full_dataset = EyeTrackingDataset(path_pos = path_pos, dir_images = dir_images, transform=img_transform, polar = False)
+        transforms.ToTensor()])       
        
-    if debug_mode == 'fast_1st_epoch':
-        train_length= 10
-    else:
+    if session == 0:
+        full_dataset = EyeTrackingDatasetV2(path_pos = path_pos, dir_images = dir_images, transform=img_transform, polar = False)
         train_length= int(0.7 * len(full_dataset))
+    else:
+        full_dataset = EyeTrackingDatasetV3(path_pos = path_pos, dir_images = dir_images, transform=img_transform, polar = False)            
+        train_length= int(0.5 * len(full_dataset))
+    if debug_mode == 'fast_1st_epoch':
+        train_length= 10 
+    if debug_mode == 'fast_eval':
+        train_length= int(0.89 * len(full_dataset))   
     val_length = int(0.1 * len(full_dataset))
     test_length = len(full_dataset) - train_length - val_length
 
     np.random.seed(1)
     train_dataset, val_dataset, test_dataset=torch.utils.data.random_split(full_dataset,(train_length,val_length,test_length))
 
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=False, num_workers=0)
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=0)
     val_loader = DataLoader(val_dataset, batch_size=args.test_batch_size, shuffle=False, num_workers=0)
     test_loader = DataLoader(test_dataset, batch_size=args.test_batch_size, shuffle=False, **kwargs)
 
@@ -257,15 +273,15 @@ def main():
         model.eval()
         with torch.no_grad():
             test_loss, trues, preds = model.test_iterate(device,test_loader)
-            np.save(rfd + 'loss_test.npy', test_loss.detach().numpy())
-            np.save(rfd + 'model_prediction.npy',[trues.detach().numpy(),preds.detach().numpy()])
+            np.save(rpos + 'loss_test.npy', test_loss.detach().numpy())
+            np.save(rpos + 'model_prediction.npy',[trues,preds])
 
         return    
     
  
 #%% Train model
-    if os.path.exists(rfd + 'best_val_loss.npy'):
-        best_loss = np.load(rfd + 'best_val_loss.npy')
+    if os.path.exists(rpos + 'best_val_loss.npy'):
+        best_loss = np.load(rpos + 'best_val_loss.npy')
     else:   
         best_loss = 10
     
@@ -301,8 +317,8 @@ def main():
             now = datetime.now()
             dt_string = now.strftime("%m%d_%H%M")
 
-            plt.savefig(rfd + dt_string + '_training_history' +  '.png')
-            print(model, file=open(rfd + dt_string + "_model.txt", "w"))
+            plt.savefig(rpos + dt_string + '_training_history' +  '.png')
+            print(model, file=open(rpos + dt_string + "_model.txt", "w"))
             
             train_batch_loss = train_batch_loss[-1]
             
@@ -311,16 +327,16 @@ def main():
         val_loss = val_loss.detach().numpy()             
         if args.save_model and val_loss < best_loss:            
             best_loss = val_loss           
-            torch.save(model.state_dict(), 'eye_tracking_model.pt')
-            np.save(rfd + 'best_val_loss.npy', best_loss)
+            torch.save(model.state_dict(), model_name + '_save_model.pt')
+            np.save(rpos + 'best_val_loss.npy', best_loss)
             best_loss = val_loss
         
         # record train & val loss for every epoch 
-        train_batch_losses.append(train_batch_loss.detach().numpy())
+        train_batch_losses.append(train_batch_loss)
         val_losses.append(val_loss)
         
             
-    np.save(rfd + 'loss_train.npy', [train_batch_losses, val_losses])
+    np.save(rpos + 'loss_train.npy', [train_batch_losses, val_losses])
             
 
 

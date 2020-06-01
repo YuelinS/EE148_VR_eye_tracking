@@ -8,7 +8,7 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 
-rfd = 'D:/git/EE148/results_project/'    
+rfd = 'D:/git/EE148/results_project/visualize/'    
 
 
 #%% Training loss across epochs
