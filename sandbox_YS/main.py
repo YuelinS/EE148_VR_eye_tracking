@@ -17,17 +17,17 @@ from datetime import datetime
 from EyeTrackingComb import EyeTrackingDatasetV2, EyeTrackingDatasetV3
 
 '''
-python main.py --batch-size 128 --epochs 1 --log-interval 20 --lr 0.1
-python main.py --evaluate --load-model eye_tracking_model.pt
+python main.py --batch-size 128 --epochs 1 --log-interval 20 --lr 0.1 --data-session 4 --tran-lr 0.1 --model-name tran
+python main.py --evaluate --load-model eye_tracking_model.pt --data-session 4 --model-name tran
 '''
 
 debug_mode = ['none','print_layer_size','fast_1st_epoch','fast_eval'][0]
 
 # Training settings
 parser = argparse.ArgumentParser(description='PyTorch EyeTracking ConvNet model')
-parser.add_argument('--data-session', type=int, default=0, metavar='N',
+parser.add_argument('--data-session', type=int, default=4, metavar='N',
                     help='data session (default: 0)')
-parser.add_argument('--model-name', type=str, default='orig',
+parser.add_argument('--model-name', type=str, default='tran',
                     help='model selection (default:original)')
 parser.add_argument('--batch-size', type=int, default=200, metavar='N',
                     help='input batch size for training (default: 64)')
@@ -37,6 +37,8 @@ parser.add_argument('--epochs', type=int, default=1, metavar='N',
                     help='number of epochs to train (default: 14)')
 parser.add_argument('--lr', type=float, default=0.1, metavar='LR',
                     help='learning rate (default: 0.1)')
+parser.add_argument('--tran-lr', type=float, default=0.01, metavar='LR',
+                    help='transfer learning rate (default: 0.01)')
 parser.add_argument('--step', type=int, default=1, metavar='N',
                     help='number of epochs between learning rate reductions (default: 1)')
 parser.add_argument('--gamma', type=float, default=0.9, metavar='M',
@@ -47,7 +49,7 @@ parser.add_argument('--seed', type=int, default=2, metavar='S',
                     help='random seed (default: 1)')
 parser.add_argument('--log-interval', type=int, default=10, metavar='N',
                     help='how many batches to wait before logging training status')
-parser.add_argument('--evaluate', action='store_true', default=True,
+parser.add_argument('--evaluate', action='store_true', default=False,
                     help='evaluate your model on the official test set')
 parser.add_argument('--load-model', type=str,
                     help='model file path')
@@ -118,23 +120,54 @@ class Net(nn.Module):
             self.fc2, 
             # self.fc3
         )
-        
+              
+
         self.criterion_train = nn.MSELoss()
         self.criterion_test = nn.MSELoss(reduction='sum')
-        # Try different optimzers here [Adadelta, Adam, SGD, RMSprop]
-        self.optimizer = optim.Adadelta(self.parameters(), lr=args.lr)
-        self.scheduler = ReduceLROnPlateau(self.optimizer, 'min')
-        # self.scheduler = StepLR(self.optimizer, step_size=args.step, gamma=args.gamma)
+            
+        if model_name == 'orig':
+            
+            # Try different optimzers here [Adadelta, Adam, SGD, RMSprop]
+            self.optimizer = optim.Adadelta(self.parameters(), lr=args.lr)
+            self.scheduler = ReduceLROnPlateau(self.optimizer, 'min')
+            # self.scheduler = StepLR(self.optimizer, step_size=args.step, gamma=args.gamma)
+        
+        elif model_name == 'tran':
     
+            self.load_state_dict(torch.load('D:/git/EE148/EE148_VR_eye_tracking/sandbox_YS/eye_tracking_model.pt'))
+            for param in self.parameters():
+                param.requires_grad = False
+            
+            # Parameters of newly constructed modules have requires_grad=True by default
+            self.fc1 = nn.Linear(self.fc1.in_features, self.fc1.out_features)  
+            self.fc2 = nn.Linear(self.fc2.in_features, self.fc2.out_features) 
+            
+            self.forward_pass[21] = self.fc1
+            self.forward_pass[22] = self.activate
+            self.forward_pass[23] = nn.Dropout2d(kdrop)
+            self.forward_pass[24] = self.fc2
+            
+            params_to_update = []
+            for name,param in self.named_parameters():
+                if param.requires_grad == True:
+                    params_to_update.append(param)
+                    print("\t",name)
+            
+            # Observe that only parameters of final layer are being optimized as
+            # opposed to before.
+            self.optimizer = optim.Adadelta(params_to_update, lr=args.tran_lr)
+            self.scheduler = ReduceLROnPlateau(self.optimizer, 'min')
+
+        else:
+            raise ValueError('No model is selected.')
     
     def calculate_size(self, size_in):
         # conv_out = (conv_in + 2×padding - kernel_size) / stride + 1
 
-        size_out = np.floor(np.floor((size_in + 2*self.pad - self.kers[0]) / self.strides[0] +1) / 2)
-        size_out = np.floor(np.floor((size_out + 2*self.pad - self.kers[1]) / self.strides[1] +1) / 2)
-        size_out = np.floor(np.floor((size_out + 2*self.pad - self.kers[2]) / self.strides[2] +1) / 2)
-        size_out = np.floor(np.floor((size_out + 2*self.pad - self.kers[3]) / self.strides[3] +1) / 2)
-
+        for i in range(4):
+            size_out = np.floor(np.floor((size_in + 2*self.pad - self.kers[i]) / self.strides[i] +1) / 2)
+            size_in = size_out
+            
         return int(size_out)
     
     
@@ -200,7 +233,8 @@ class Net(nn.Module):
         test_loss = 0   
         preds = []
         trues = [] 
-        
+        start_time = time.time() 
+
         for batch_idx, (data, target, target_fove) in enumerate(test_loader):
             data, target = data.to(device,dtype=torch.float), target[:,:3].to(device,dtype=torch.float)           
             output, loss = self.forward(data, target)                # Make predictions
@@ -212,7 +246,10 @@ class Net(nn.Module):
               preds.append(output.detach().numpy())
             # if batch_idx == 0:
             #       break
-                
+        
+        total_time = time.time() - start_time
+        time_per_im = total_time / len(test_loader.dataset)
+     
         test_loss /= len(test_loader.dataset)
     
         print('\nTest set: Average loss: {:.4f}'.format(test_loss))
@@ -221,9 +258,21 @@ class Net(nn.Module):
             print('True:', [f'{target.tolist()[i][d]:.3f}' for d in range(3)], 
                   'Pred:', [f'{output.tolist()[i][d]:.3f}' for d in range(3)])
                 
-        return test_loss, trues, preds
+        return test_loss, trues, preds, time_per_im
         
-        
+
+def transfer_learning(model):
+    model = Net(h_rs,w_rs,args).to(device)
+    model.load_state_dict(torch.load('D:/git/EE148/EE148_VR_eye_tracking/sandbox_YS/eye_tracking_model.pt'))
+
+    for param in model.parameters():
+        param.requires_grad = False
+    
+    # Parameters of newly constructed modules have requires_grad=True by default
+    num_ftrs = model.fc2.in_features
+    model.fc2 = nn.Linear(num_ftrs, 3)  
+
+    return model
         
 #%%
 def main():
@@ -272,9 +321,10 @@ def main():
         
         model.eval()
         with torch.no_grad():
-            test_loss, trues, preds = model.test_iterate(device,test_loader)
+            test_loss, trues, preds, time_per_im = model.test_iterate(device,test_loader)
             np.save(rpos + 'loss_test.npy', test_loss.detach().numpy())
             np.save(rpos + 'model_prediction.npy',[trues,preds])
+            np.save(rpos + 'time_per_im.npy',time_per_im)
 
         return    
     
@@ -296,7 +346,7 @@ def main():
         
         model.eval()                       
         with torch.no_grad():
-            val_loss, _ , _ = model.test_iterate(device,val_loader)
+            val_loss, _, _, _ = model.test_iterate(device,val_loader)
                     
             
         # Plot training history for the first epoch
