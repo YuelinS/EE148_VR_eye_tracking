@@ -17,17 +17,17 @@ from datetime import datetime
 from EyeTrackingComb import EyeTrackingDatasetV2, EyeTrackingDatasetV3
 
 '''
-python main.py --batch-size 128 --epochs 1 --log-interval 20 --lr 0.1 --data-session 4 --tran-lr 0.1 --model-name tran
+python main.py --batch-size 128 --epochs 1 --log-interval 20 --lr 0.1 --data-session 4 (--tran-lr 0.1 --model-name tran)
 python main.py --evaluate --load-model eye_tracking_model.pt --data-session 4 --model-name tran
 '''
 
-debug_mode = ['none','print_layer_size','fast_1st_epoch','fast_eval'][0]
+debug_mode = ['none','print_layer_size','fast_train','fast_eval'][0]
 
 # Training settings
 parser = argparse.ArgumentParser(description='PyTorch EyeTracking ConvNet model')
-parser.add_argument('--data-session', type=int, default=4, metavar='N',
+parser.add_argument('--data-session', type=int, default=0, metavar='N',
                     help='data session (default: 0)')
-parser.add_argument('--model-name', type=str, default='tran',
+parser.add_argument('--model-name', type=str, default='orig',
                     help='model selection (default:original)')
 parser.add_argument('--batch-size', type=int, default=200, metavar='N',
                     help='input batch size for training (default: 64)')
@@ -125,11 +125,11 @@ class Net(nn.Module):
         self.criterion_train = nn.MSELoss()
         self.criterion_test = nn.MSELoss(reduction='sum')
             
-        if model_name == 'orig':
+        if model_name == 'orig' or 'orig4':
             
             # Try different optimzers here [Adadelta, Adam, SGD, RMSprop]
             self.optimizer = optim.Adadelta(self.parameters(), lr=args.lr)
-            self.scheduler = ReduceLROnPlateau(self.optimizer, 'min')
+            self.scheduler = ReduceLROnPlateau(self.optimizer, 'min', factor = 0.5, patience = 1)
             # self.scheduler = StepLR(self.optimizer, step_size=args.step, gamma=args.gamma)
         
         elif model_name == 'tran':
@@ -147,6 +147,9 @@ class Net(nn.Module):
             self.forward_pass[23] = nn.Dropout2d(kdrop)
             self.forward_pass[24] = self.fc2
             
+            # self.conv1 = nn.Conv2d(in_channels=1, out_channels=chns[0], kernel_size=self.kers[0], stride = self.strides[0], padding=self.pad, padding_mode='replicate')  
+            # self.forward_pass[0] = self.conv1
+
             params_to_update = []
             for name,param in self.named_parameters():
                 if param.requires_grad == True:
@@ -156,7 +159,7 @@ class Net(nn.Module):
             # Observe that only parameters of final layer are being optimized as
             # opposed to before.
             self.optimizer = optim.Adadelta(params_to_update, lr=args.tran_lr)
-            self.scheduler = ReduceLROnPlateau(self.optimizer, 'min')
+            self.scheduler = ReduceLROnPlateau(self.optimizer, 'min',factor = 0.5, patience = 1)
 
         else:
             raise ValueError('No model is selected.')
@@ -205,7 +208,8 @@ class Net(nn.Module):
             data, target = data.to(device,dtype=torch.float), target[:,:3].to(device,dtype=torch.float)           
             output, batch_loss = self.forward(data, target)                # Make predictions
             
-            batch_losses.append(batch_loss.detach().numpy())
+            batch_loss = batch_loss.detach().numpy()
+            batch_losses.append(batch_loss)
             
 
             if batch_idx % self.args.log_interval == 0:
@@ -260,19 +264,7 @@ class Net(nn.Module):
                 
         return test_loss, trues, preds, time_per_im
         
-
-def transfer_learning(model):
-    model = Net(h_rs,w_rs,args).to(device)
-    model.load_state_dict(torch.load('D:/git/EE148/EE148_VR_eye_tracking/sandbox_YS/eye_tracking_model.pt'))
-
-    for param in model.parameters():
-        param.requires_grad = False
     
-    # Parameters of newly constructed modules have requires_grad=True by default
-    num_ftrs = model.fc2.in_features
-    model.fc2 = nn.Linear(num_ftrs, 3)  
-
-    return model
         
 #%%
 def main():
@@ -290,7 +282,7 @@ def main():
     else:
         full_dataset = EyeTrackingDatasetV3(path_pos = path_pos, dir_images = dir_images, transform=img_transform, polar = False)            
         train_length= int(0.5 * len(full_dataset))
-    if debug_mode == 'fast_1st_epoch':
+    if debug_mode == 'fast_train':
         train_length= 10 
     if debug_mode == 'fast_eval':
         train_length= int(0.89 * len(full_dataset))   
@@ -333,7 +325,7 @@ def main():
     if os.path.exists(rpos + 'best_val_loss.npy'):
         best_loss = np.load(rpos + 'best_val_loss.npy')
     else:   
-        best_loss = 10
+        best_loss = 15
     
     model = Net(h_rs,w_rs,args).to(device)
     
